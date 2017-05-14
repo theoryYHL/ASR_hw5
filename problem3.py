@@ -80,22 +80,19 @@ with tf.Session() as sess:
 
         logits, prev_state = model(input_sentence, initial_states, reuse_=True)
         prob = tf.log(tf.nn.softmax(logits))
-        prob_out, prev_state = sess.run([prob, final_state], feed_dict={input_sentence: [input_word]})
+        prob_out, prev_state = sess.run([prob, prev_state], feed_dict={input_sentence: [input_word]})
         top2words = np.argsort(prob_out, axis=1)[0, -2:]
         top2probs = prob_out[0, top2words]
         generated_words1.append(id_list[top2words[0]])
         generated_words2.append(id_list[top2words[1]])
-        prev_state1 = prev_state2 = prev_state
 
         while 2 not in top2words:
-            logits, prev_state1 = model(input_sentence, prev_state1, reuse_=True)
+            logits, prev_state = model(input_sentence, prev_state, reuse_=True)
             prob = tf.log(tf.nn.softmax(logits))
             prob_out1 = sess.run(prob, feed_dict={input_sentence: [[top2words[0]]]})
             prob_out1 += top2probs[0]
             top2from1 = np.sort(prob_out1, axis=1)[0, -2:]
 
-            logits, prev_state2 = model(input_sentence, prev_state2, reuse_=True)
-            prob = tf.log(tf.nn.softmax(logits))
             prob_out2 = sess.run(prob, feed_dict={input_sentence: [[top2words[1]]]})
             prob_out2 += top2probs[1]
             top2from2 = np.sort(prob_out2, axis=1)[0, -2:]
@@ -103,12 +100,10 @@ with tf.Session() as sess:
             if top2from1[0] > top2from2[1]:
                 top2words = np.argsort(prob_out1, axis=1)[0, -2:]
                 top2probs = prob_out1[0, top2words]
-                prev_state2 = prev_state1
                 generated_words2 = generated_words1.copy()
             elif top2from2[0] > top2from1[1]:
                 top2words = np.argsort(prob_out2, axis=1)[0, -2:]
                 top2probs = prob_out2[0, top2words]
-                prev_state1 = prev_state2
                 generated_words1 = generated_words2.copy()
             else:
                 top2words = np.concatenate([np.argmax(prob_out1, axis=1), np.argmax(prob_out2, axis=1)])
@@ -117,7 +112,7 @@ with tf.Session() as sess:
         if top2words[0] != 2:
             next_word = [top2words[0]]
             while next_word != 2:
-                logits, prev_state1 = model(input_sentence, prev_state1, reuse_=True)
+                logits, prev_state = model(input_sentence, prev_state, reuse_=True)
                 prob = tf.log(tf.nn.softmax(logits))
                 prob_out = sess.run(prob, feed_dict={input_sentence: [next_word]})
                 next_word = np.argmax(prob_out, axis=1)
@@ -125,7 +120,7 @@ with tf.Session() as sess:
         elif top2words[1] != 2:
             next_word = [top2words[1]]
             while next_word != 2:
-                logits, prev_state2 = model(input_sentence, prev_state2, reuse_=True)
+                logits, prev_state = model(input_sentence, prev_state, reuse_=True)
                 prob = tf.log(tf.nn.softmax(logits))
                 prob_out = sess.run(prob, feed_dict={input_sentence: [next_word]})
                 next_word = np.argmax(prob_out, axis=1)
