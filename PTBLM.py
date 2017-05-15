@@ -96,13 +96,17 @@ class PTBLM(object):
         h3:         (batch_size * sequence_length, hidden_dim)
         h4:         (batch_size * sequence_length, vocabulary)
         """
-
+        l = tf.unstack(states_, axis=0)
+        rnn_tuple_state = tuple(
+                  [tf.contrib.rnn.LSTMStateTuple(l[idx][0], l[idx][1])
+                  for idx in range(2)]
+        )
         h1 = self.embed(input_)
         with tf.variable_scope(self.name, reuse=reuse_):
             if is_train:
-                h2, s2 = tf.nn.dynamic_rnn(self.stack, h1, initial_state=states_)
+                h2, s2 = tf.nn.dynamic_rnn(self.stack, h1, initial_state=rnn_tuple_state)
             else:
-                h2, s2 = tf.nn.dynamic_rnn(self.stack_dropout, h1, initial_state=states_)
+                h2, s2 = tf.nn.dynamic_rnn(self.stack_dropout, h1, initial_state=rnn_tuple_state)
         h3 = tf.reshape(h2, [-1, self.hidden_dim])
         h4 = self.dense(h3)
 
@@ -111,7 +115,12 @@ class PTBLM(object):
         # you should first run dummy data or first batch to get all parameters.
         # or, you can make your own lstm layer.
 
-        return h4, s2
+        l = tf.unstack(s2, axis=0)
+        final_states = tuple(
+                  [tf.contrib.rnn.LSTMStateTuple(l[idx][0], l[idx][1])
+                  for idx in range(2)]
+        )
+        return h4, final_states
 
     def perplexity(self, logits, target):
         loss = tf.contrib.legacy_seq2seq.sequence_loss_by_example(
