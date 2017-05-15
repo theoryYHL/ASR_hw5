@@ -11,12 +11,11 @@ sequence_length = 1000
 
 input_sentence = tf.placeholder(tf.int32, shape=[None, None]) # [batch_size, sequence_length]
 target_h = tf.placeholder(tf.int32, shape=[None, None])
-states_h = tf.placeholder(tf.float32, shape=[2])
+initial_states = tf.placeholder(tf.float32, shape=[2, 2, batch_size, 650])
 
 model = PTBLM(vocabulary, sequence_length, batch_size)
-initial_states = model.zero_state()
-model(input_sentence, initial_states)  # dummy call
-
+logits, final_state = model(input_sentence, initial_states)
+init_states = np.zeros((2, 2, batch_size, 650))
 
 with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
@@ -33,11 +32,10 @@ with tf.Session() as sess:
             word_ids.append(word_dictionary[word])
         pr2_word_ids.append(word_ids)
 
-    logits, final_state = model(input_sentence, initial_states, reuse_=True)
     prob = tf.nn.softmax(logits)
     softmax_probs = list()
     for pr2_word_id in pr2_word_ids:
-        softmax_probs.append(sess.run(prob, feed_dict={input_sentence: [pr2_word_id]}))
+        softmax_probs.append(sess.run(prob, feed_dict={input_sentence: [pr2_word_id], initial_states: init_states}))
 
     unigram_i = 0.00135759
     logLikelihoods = []
@@ -59,13 +57,11 @@ with tf.Session() as sess:
         input_word = [word_dictionary[seed_word]]
         generated_words = ["<" + seed_word + ">"]
 
-        logits, prev_state = model(input_sentence, initial_states, reuse_=True)
-        logit_outs = sess.run(logits, feed_dict={input_sentence: [input_word]})
+        logit_outs, prev_state = sess.run([logits, final_state], feed_dict={input_sentence: [input_word], initial_states: init_states})
         next_word = np.argmax(logit_outs, axis=1)
         generated_words.append(id_list[next_word[0]])
         while next_word != 2:
-            logits, prev_state = model(input_sentence, prev_state, reuse_=True)
-            logit_outs = sess.run(logits, feed_dict={input_sentence: [next_word]})
+            logit_outs, prev_state = sess.run([logits, final_state], feed_dict={input_sentence: [next_word], initial_states: prev_state})
             next_word = np.argmax(logit_outs, axis=1)
             generated_words.append(id_list[next_word[0]])
         print(" ".join(generated_words))
@@ -78,51 +74,62 @@ with tf.Session() as sess:
         generated_words1 = ["<" + seed_word + ">"]
         generated_words2 = ["<" + seed_word + ">"]
 
-        logits, prev_state = model(input_sentence, initial_states, reuse_=True)
         prob = tf.log(tf.nn.softmax(logits))
-        prob_out, prev_state = sess.run([prob, prev_state], feed_dict={input_sentence: [input_word]})
+        prob_out, prev_state = sess.run([prob, final_state], feed_dict={input_sentence: [input_word], initial_states: init_states})
         top2words = np.argsort(prob_out, axis=1)[0, -2:]
         top2probs = prob_out[0, top2words]
         generated_words1.append(id_list[top2words[0]])
         generated_words2.append(id_list[top2words[1]])
+        prev_state1 = prev_state2 = prev_state
 
+        # beam search
         while 2 not in top2words:
-            logits, prev_state = model(input_sentence, prev_state, reuse_=True)
             prob = tf.log(tf.nn.softmax(logits))
-            prob_out1 = sess.run(prob, feed_dict={input_sentence: [[top2words[0]]]})
+            feed_dict = {input_sentence: [[top2words[0]]], initial_states: prev_state1}
+            prob_out1, prev_state1 = sess.run([prob, final_state], feed_dict)
             prob_out1 += top2probs[0]
             top2from1 = np.sort(prob_out1, axis=1)[0, -2:]
 
-            prob_out2 = sess.run(prob, feed_dict={input_sentence: [[top2words[1]]]})
+            feed_dict = {input_sentence: [[top2words[1]]], initial_states: prev_state2}
+            prob_out2, prev_state2 = sess.run([prob, final_state], feed_dict)
             prob_out2 += top2probs[1]
             top2from2 = np.sort(prob_out2, axis=1)[0, -2:]
 
             if top2from1[0] > top2from2[1]:
                 top2words = np.argsort(prob_out1, axis=1)[0, -2:]
                 top2probs = prob_out1[0, top2words]
+                prev_state2 = prev_state1
                 generated_words2 = generated_words1.copy()
+                generated_words1.append(id_list[top2words[0]])
+                generated_words2.append(id_list[top2words[1]])
             elif top2from2[0] > top2from1[1]:
                 top2words = np.argsort(prob_out2, axis=1)[0, -2:]
                 top2probs = prob_out2[0, top2words]
+                prev_state1 = prev_state2
                 generated_words1 = generated_words2.copy()
+                generated_words1.append(id_list[top2words[0]])
+                generated_words2.append(id_list[top2words[1]])
             else:
                 top2words = np.concatenate([np.argmax(prob_out1, axis=1), np.argmax(prob_out2, axis=1)])
                 top2probs = [prob_out1[0, top2words[0]], prob_out2[0, top2words[1]]]
+                generated_words1.append(id_list[top2words[0]])
+                generated_words2.append(id_list[top2words[1]])
 
+        # greedy search
         if top2words[0] != 2:
             next_word = [top2words[0]]
             while next_word != 2:
-                logits, prev_state = model(input_sentence, prev_state, reuse_=True)
                 prob = tf.log(tf.nn.softmax(logits))
-                prob_out = sess.run(prob, feed_dict={input_sentence: [next_word]})
+                feed_dict = {input_sentence: [next_word], initial_states: prev_state1}
+                prob_out, prev_state1 = sess.run([prob, final_state], feed_dict)
                 next_word = np.argmax(prob_out, axis=1)
                 generated_words1.append(id_list[next_word[0]])
         elif top2words[1] != 2:
             next_word = [top2words[1]]
             while next_word != 2:
-                logits, prev_state = model(input_sentence, prev_state, reuse_=True)
                 prob = tf.log(tf.nn.softmax(logits))
-                prob_out = sess.run(prob, feed_dict={input_sentence: [next_word]})
+                feed_dict = {input_sentence: [next_word], initial_states: prev_state2}
+                prob_out, prev_state2 = sess.run([prob, final_state], feed_dict)
                 next_word = np.argmax(prob_out, axis=1)
                 generated_words2.append(id_list[next_word[0]])
         print(" ".join(generated_words1))
