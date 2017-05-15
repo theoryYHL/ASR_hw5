@@ -115,12 +115,7 @@ class PTBLM(object):
         # you should first run dummy data or first batch to get all parameters.
         # or, you can make your own lstm layer.
 
-        l = tf.unstack(s2, axis=0)
-        final_states = tuple(
-                  [tf.contrib.rnn.LSTMStateTuple(l[idx][0], l[idx][1])
-                  for idx in range(2)]
-        )
-        return h4, final_states
+        return h4, s2
 
     def perplexity(self, logits, target):
         loss = tf.contrib.legacy_seq2seq.sequence_loss_by_example(
